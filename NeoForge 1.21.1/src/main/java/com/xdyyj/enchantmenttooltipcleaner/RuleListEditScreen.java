@@ -73,8 +73,8 @@ public class RuleListEditScreen extends Screen {
     private static final int ITEM_HEIGHT = 19;
     private static final int LIST_HEADER_HEIGHT = 16;
 
-    // 首次启动时释出的示范预设资源 (随模组 jar 一同打包)
-    private static final String DEFAULT_PRESET_RESOURCE = "/assets/enchantmenttooltipcleaner/presets/纯净体验预设.json";
+    // 首次启动时释出的示范预设资源 (随模组 jar 一同打包，使用纯 ASCII 资源路径避免 Windows 编码问题)
+    private static final String DEFAULT_PRESET_RESOURCE = "/assets/enchantmenttooltipcleaner/presets/default_preset.json";
     private static final String DEFAULT_PRESET_FILE_NAME = "纯净体验预设.json";
 
     // 单行规则删除两步确认

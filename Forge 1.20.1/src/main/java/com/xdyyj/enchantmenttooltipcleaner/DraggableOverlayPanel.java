@@ -325,6 +325,9 @@ public class DraggableOverlayPanel {
         // 渲染完整 4 边边框，左右独立隔断，底边永不消失
         graphics.renderOutline(x, y, w, h, border);
         String label = (active ? "§a§l" : (hovered ? "§f" : "§7")) + text;
+        if (font.width(label) > w - 4) {
+            label = font.plainSubstrByWidth(label, w - 4);
+        }
         graphics.drawCenteredString(font, label, x + w / 2, y + 4, 0xFFFFFFFF);
     }
 
@@ -460,7 +463,13 @@ public class DraggableOverlayPanel {
             graphics.fill(x + 2, y + 4, x + 6, y + 8, 0xFF55FF55);
         }
 
-        graphics.drawString(font, label, x + 12, y + 2, textColor, false);
+        int maxLabelW = (panelX + PANEL_WIDTH - 6) - (x + 12);
+        String displayLabel = label;
+        if (font.width(displayLabel) > maxLabelW) {
+            displayLabel = font.plainSubstrByWidth(displayLabel, maxLabelW - font.width("..")) + "..";
+        }
+
+        graphics.drawString(font, displayLabel, x + 12, y + 2, textColor, false);
 
         if (hovered && tooltip != null) {
             hoveredTooltip = tooltip;

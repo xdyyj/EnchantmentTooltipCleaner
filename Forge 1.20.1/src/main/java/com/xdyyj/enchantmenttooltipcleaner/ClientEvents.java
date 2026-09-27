@@ -257,8 +257,8 @@ public class ClientEvents {
             if (key != null && !key.isEmpty()) {
                 // 1. 内置 Key 检查：支持 startsWith 与 contains
                 if (ctx.removeEnch() && (key.startsWith("enchantment.") || key.contains(".enchantment."))) return true;
-                if (ctx.removeAttr() && key.startsWith("attribute.modifier.")) return true;
-                if (ctx.removePot() && (key.startsWith("effect.minecraft.") || key.startsWith("potion.withDuration") || key.contains(".effect.") || key.startsWith("jade.potion") || key.contains("potion_effects"))) return true;
+                if (ctx.removeAttr() && (key.startsWith("attribute.modifier.") || key.startsWith("item.modifiers.") || key.startsWith("potion.whenDrank"))) return true;
+                if (ctx.removePot() && (key.startsWith("effect.") || key.startsWith("potion.withDuration") || key.contains(".effect.") || key.startsWith("jade.potion") || key.contains("potion_effects"))) return true;
                 if (ctx.removeDesc() && (key.contains("description.") || key.contains(".desc") || key.contains("enchantment_description"))) return true;
                 
                 // 2. 自定义 Key 检查
@@ -284,6 +284,26 @@ public class ClientEvents {
             }
         }
         
+        return false;
+    }
+
+    // 递归检查组件是否为附魔条目（识别 key 前缀与包含关系）
+    public static boolean isEnchantmentComponent(Component component) {
+        if (component == null) return false;
+        if (component.getContents() instanceof TranslatableContents tc) {
+            String key = tc.getKey();
+            if (key != null && (key.startsWith("enchantment.") || key.contains(".enchantment."))) {
+                return true;
+            }
+            for (Object arg : tc.getArgs()) {
+                if (arg instanceof Component argComp && isEnchantmentComponent(argComp)) {
+                    return true;
+                }
+            }
+        }
+        for (Component sib : component.getSiblings()) {
+            if (isEnchantmentComponent(sib)) return true;
+        }
         return false;
     }
 
@@ -467,7 +487,7 @@ public class ClientEvents {
 
         // 提取该物品实际具有的附魔名称集合（用于突破模组自定义附魔渲染格式）
         Set<String> itemEnchantmentNames = Collections.emptySet();
-        if (ctx.removeEnch() && (stack.isEnchanted() || stack.getItem() instanceof EnchantedBookItem)) {
+        if ((ctx.removeEnch() || ctx.removeDesc()) && (stack.isEnchanted() || stack.getItem() instanceof EnchantedBookItem)) {
             itemEnchantmentNames = new HashSet<>();
             Map<Enchantment, Integer> enchs = EnchantmentHelper.getEnchantments(stack);
             for (Map.Entry<Enchantment, Integer> entry : enchs.entrySet()) {
@@ -489,71 +509,88 @@ public class ClientEvents {
             Component component = iterator.next();
             boolean removeThisLine = false;
 
-            // 1. 基于 Key 与组件结构的检查
-            if (shouldRemoveRecursively(component, ctx)) {
-                removeThisLine = true;
-                prevLineWasEnchantment = true;
-            }
-
-            // 2. 基于真实附魔名称的比对 (严密比对，杜绝包含'力量'/'Power'误杀正常Lore)
-            if (!removeThisLine && ctx.removeEnch() && !itemEnchantmentNames.isEmpty()) {
+            // 判断当前行是否为附魔条目 (基于翻译键或真实附魔名称匹配)
+            boolean isEnchantmentLine = isEnchantmentComponent(component);
+            if (!isEnchantmentLine && !itemEnchantmentNames.isEmpty()) {
                 String lineStr = ChatFormatting.stripFormatting(component.getString());
                 if (lineStr != null && !lineStr.isEmpty()) {
-                    String trimmedLine = lineStr.trim();
-                    // 去除行首可能存在的修饰符号（如 ★, ◆, *, -, •, [+] 等）
-                    String cleanEnchLine = trimmedLine.replaceFirst("^[\\s*★◆■•\\-\\[\\]+]+", "").trim();
+                    String cleanEnchLine = lineStr.trim().replaceFirst("^[\\s*★◆■•\\-\\[\\]+]+", "").trim();
                     for (String enchName : itemEnchantmentNames) {
                         if (cleanEnchLine.equals(enchName) || cleanEnchLine.startsWith(enchName + " ") || cleanEnchLine.startsWith(enchName + "§")) {
-                            removeThisLine = true;
-                            prevLineWasEnchantment = true;
+                            isEnchantmentLine = true;
                             break;
                         }
                     }
                 }
             }
 
-            // 检查该行是否为属性修饰符段落或Lore，避免被附魔说明误删
-            boolean isAttributeOrLore = false;
-            String plainText = ChatFormatting.stripFormatting(component.getString());
-            if (plainText != null) {
-                String trimmed = plainText.trim();
-                if (trimmed.startsWith("When in ") || trimmed.startsWith("在主手时") || trimmed.startsWith("在副手时") ||
-                    trimmed.startsWith("在躯干时") || trimmed.startsWith("在脚部时") || trimmed.startsWith("在头部时") ||
-                    trimmed.startsWith("在腿部时") || trimmed.contains("攻击伤害") || trimmed.contains("攻击速度") ||
-                    trimmed.contains("Attack Damage") || trimmed.contains("Attack Speed")) {
-                    isAttributeOrLore = true;
-                }
-            }
+            boolean isDescLine = false;
 
-            // 3. 附魔说明（Descriptions）检查
-            if (!removeThisLine && ctx.removeDesc() && !isAttributeOrLore) {
-                TextColor color = component.getStyle().getColor();
-                boolean isGray = color != null && (color.equals(GRAY_TEXT_COLOR) || color.equals(DARK_GRAY_TEXT_COLOR));
-                String rawText = component.getString();
-                String plain = ChatFormatting.stripFormatting(rawText);
-                
-                if (plain != null) {
-                    boolean hasIndent = plain.startsWith(" ") || plain.startsWith("\t") || plain.startsWith("- ") || plain.startsWith("— ");
-                    if ((prevLineWasEnchantment && isGray) || (prevLineWasEnchantment && hasIndent)) {
-                        removeThisLine = true;
+            if (isEnchantmentLine) {
+                if (ctx.removeEnch()) {
+                    removeThisLine = true;
+                }
+                prevLineWasEnchantment = true;
+            } else {
+                // 1. 基于 Key 与组件结构的通用检查（属性/药水/自定义Key）
+                if (shouldRemoveRecursively(component, ctx)) {
+                    removeThisLine = true;
+                }
+
+                // 检查该行是否为属性修饰符段落或Lore，避免被附魔说明误删
+                boolean isAttributeOrLore = false;
+                if (component.getContents() instanceof TranslatableContents tc) {
+                    String k = tc.getKey();
+                    if (k != null && (k.startsWith("item.modifiers.") || k.startsWith("attribute.modifier.") || k.startsWith("attribute.name."))) {
+                        isAttributeOrLore = true;
                     }
                 }
-            }
-
-            // 4. 药水占位符/未格式化清理 (兼容 Jade 实体药水 HUD 遗留格式如 "%s %s (%s)" 或 "%s (%s)")
-            if (!removeThisLine && ctx.removePot()) {
-                String rawStr = component.getString();
-                if (rawStr != null) {
-                    String clean = ChatFormatting.stripFormatting(rawStr).trim();
-                    if (clean.equals("%s %s (%s)") || clean.equals("%s (%s)") || clean.startsWith("%s %s") || clean.startsWith("%s (")) {
-                        removeThisLine = true;
+                if (!isAttributeOrLore) {
+                    String plainText = ChatFormatting.stripFormatting(component.getString());
+                    if (plainText != null) {
+                        String trimmed = plainText.trim();
+                        if (trimmed.startsWith("When in ") || trimmed.startsWith("在主手") || trimmed.startsWith("在副手") ||
+                            trimmed.startsWith("在躯干") || trimmed.startsWith("在軀幹") || trimmed.startsWith("在脚部") ||
+                            trimmed.startsWith("在腳部") || trimmed.startsWith("在足部") || trimmed.startsWith("在头部") ||
+                            trimmed.startsWith("在頭部") || trimmed.startsWith("在腿部") || trimmed.contains("攻击伤害") ||
+                            trimmed.contains("攻擊傷害") || trimmed.contains("攻击速度") || trimmed.contains("攻擊速度") ||
+                            trimmed.contains("Attack Damage") || trimmed.contains("Attack Speed")) {
+                            isAttributeOrLore = true;
+                        }
                     }
                 }
-            }
 
-            // 状态机重置：若未删除该行，或该行是属性修饰符，立即切断 prevLineWasEnchantment
-            if (!removeThisLine || isAttributeOrLore) {
-                prevLineWasEnchantment = false;
+                // 2. 附魔说明（Descriptions）检查
+                if (!removeThisLine && ctx.removeDesc() && !isAttributeOrLore) {
+                    TextColor color = component.getStyle().getColor();
+                    boolean isGray = color != null && (color.equals(GRAY_TEXT_COLOR) || color.equals(DARK_GRAY_TEXT_COLOR));
+                    String rawText = component.getString();
+                    String plain = ChatFormatting.stripFormatting(rawText);
+                    
+                    if (plain != null) {
+                        boolean hasIndent = plain.startsWith(" ") || plain.startsWith("\t") || plain.startsWith("- ") || plain.startsWith("— ");
+                        if ((prevLineWasEnchantment && isGray) || (prevLineWasEnchantment && hasIndent)) {
+                            removeThisLine = true;
+                            isDescLine = true;
+                        }
+                    }
+                }
+
+                // 3. 药水占位符/未格式化清理 (兼容 Jade 实体药水 HUD 遗留格式如 "%s %s (%s)" 或 "%s (%s)")
+                if (!removeThisLine && ctx.removePot()) {
+                    String rawStr = component.getString();
+                    if (rawStr != null) {
+                        String clean = ChatFormatting.stripFormatting(rawStr).trim();
+                        if (clean.equals("%s %s (%s)") || clean.equals("%s (%s)") || clean.startsWith("%s %s") || clean.startsWith("%s (")) {
+                            removeThisLine = true;
+                        }
+                    }
+                }
+
+                // 状态机流转：若当前行不是附魔说明行（或者属于属性修饰符），切断 prevLineWasEnchantment
+                if (isAttributeOrLore || !isDescLine) {
+                    prevLineWasEnchantment = false;
+                }
             }
             
             // 5. 基于用户自定义文本内容的检查
@@ -877,8 +914,8 @@ public class ClientEvents {
                 return;
             }
 
-            // Ctrl + 左键点击槽位：复制物品信息与调试翻译键并弹出 Action Bar 提示
-            if (event.getButton() == 0 && Screen.hasControlDown()) {
+            // Ctrl + 左键点击槽位：仅在调试模式启用时复制物品信息与调试翻译键并弹出 Action Bar 提示
+            if (BakedConfig.debugMode && event.getButton() == 0 && Screen.hasControlDown()) {
                 net.minecraft.world.inventory.Slot slot = containerScreen.getSlotUnderMouse();
                 if (slot != null && slot.hasItem()) {
                     ItemStack stack = slot.getItem();
