@@ -781,6 +781,12 @@ public class ClientEvents {
                         if ("toString".equals(mName)) {
                             return "DraggableOverlayPanelJeiExclusionArea";
                         }
+                        if ("getClickableIngredientUnderMouse".equals(mName) || method.getReturnType().equals(Optional.class)) {
+                            return Optional.empty();
+                        }
+                        if (Collection.class.isAssignableFrom(method.getReturnType())) {
+                            return Collections.emptyList();
+                        }
                         return null;
                     }
                 );
