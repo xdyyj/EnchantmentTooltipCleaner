@@ -207,6 +207,7 @@ public class DraggableOverlayPanel {
         hoveredTooltip = null;
 
         graphics.flush();
+        RenderSystem.clear(org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.disableDepthTest();
 
         graphics.pose().pushPose();
@@ -304,6 +305,7 @@ public class DraggableOverlayPanel {
             isRenderingOurOwnTooltip = true;
             try {
                 graphics.flush();
+                RenderSystem.clear(org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
                 graphics.renderTooltip(font, net.minecraft.network.chat.Component.literal("§7" + hoveredTooltip), mouseX, mouseY);
                 graphics.flush();
             } finally {
