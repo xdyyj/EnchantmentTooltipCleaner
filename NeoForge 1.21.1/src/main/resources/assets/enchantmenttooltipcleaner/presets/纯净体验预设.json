@@ -1,0 +1,23 @@
+{
+  "generator": "EnchantmentTooltipCleaner",
+  "version": 1,
+  "lines_containing": [
+    "NBT:",
+    "Tags:",
+    "标签:",
+    "Unbreakable",
+    "不可破坏"
+  ],
+  "lines_exact": [],
+  "lines_regex": [
+    "^\\(\\+?[0-9.]+[^)]*\\)$"
+  ],
+  "keys_containing": [
+    "enchantment_description"
+  ],
+  "keys_exact": [],
+  "excluded_items": [
+    "minecraft:enchanted_book"
+  ],
+  "excluded_mods": []
+}
