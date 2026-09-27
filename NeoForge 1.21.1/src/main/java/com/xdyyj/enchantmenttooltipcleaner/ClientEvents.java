@@ -618,6 +618,9 @@ public class ClientEvents {
     private static int lastSyncedEmiY = -999;
     private static boolean lastSyncedEmiVisible = false;
 
+    private static Object jeiGlobalGuiHandlerProxy = null;
+    private static boolean jeiChecked = false;
+
     private static Field hoveredSlotField = null;
     private static boolean hoveredSlotFieldChecked = false;
 
@@ -723,12 +726,87 @@ public class ClientEvents {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    public static void tryRegisterJeiExclusion() {
+        if (jeiChecked && jeiGlobalGuiHandlerProxy != null) return;
+        try {
+            if (!ModList.get().isLoaded("jei")) {
+                jeiChecked = true;
+                return;
+            }
+            Class<?> internalClass = Class.forName("mezz.jei.common.Internal");
+            Method getRuntimeMethod = internalClass.getMethod("getJeiRuntime");
+            Object jeiRuntime = getRuntimeMethod.invoke(null);
+            if (jeiRuntime == null) return;
+
+            Class<?> iJeiRuntimeClass = Class.forName("mezz.jei.api.runtime.IJeiRuntime");
+            Method getScreenHelperMethod = iJeiRuntimeClass.getMethod("getScreenHelper");
+            Object screenHelper = getScreenHelperMethod.invoke(jeiRuntime);
+            if (screenHelper == null) return;
+
+            Field globalHandlersField = null;
+            Class<?> clz = screenHelper.getClass();
+            while (clz != null && clz != Object.class) {
+                try {
+                    globalHandlersField = clz.getDeclaredField("globalGuiHandlers");
+                    break;
+                } catch (NoSuchFieldException e) {
+                    clz = clz.getSuperclass();
+                }
+            }
+            if (globalHandlersField == null) return;
+            globalHandlersField.setAccessible(true);
+            List<Object> globalHandlers = (List<Object>) globalHandlersField.get(screenHelper);
+            if (globalHandlers == null) return;
+
+            if (jeiGlobalGuiHandlerProxy == null) {
+                Class<?> iGlobalGuiHandlerInterface = Class.forName("mezz.jei.api.gui.handlers.IGlobalGuiHandler");
+                jeiGlobalGuiHandlerProxy = Proxy.newProxyInstance(
+                    iGlobalGuiHandlerInterface.getClassLoader(),
+                    new Class<?>[]{iGlobalGuiHandlerInterface},
+                    (proxy, method, args) -> {
+                        String mName = method.getName();
+                        if ("getGuiExtraAreas".equals(mName)) {
+                            if (DraggableOverlayPanel.isVisible && DraggableOverlayPanel.getPanelX() >= 0) {
+                                return Collections.singletonList(new net.minecraft.client.renderer.Rect2i(
+                                    DraggableOverlayPanel.getPanelX(),
+                                    DraggableOverlayPanel.getPanelY(),
+                                    DraggableOverlayPanel.PANEL_WIDTH,
+                                    DraggableOverlayPanel.PANEL_HEIGHT
+                                ));
+                            }
+                            return Collections.emptyList();
+                        }
+                        if ("equals".equals(mName) && args != null && args.length == 1) {
+                            return proxy == args[0];
+                        }
+                        if ("hashCode".equals(mName)) {
+                            return System.identityHashCode(proxy);
+                        }
+                        if ("toString".equals(mName)) {
+                            return "DraggableOverlayPanelJeiExclusionArea";
+                        }
+                        return null;
+                    }
+                );
+            }
+
+            if (!globalHandlers.contains(jeiGlobalGuiHandlerProxy)) {
+                globalHandlers.add(jeiGlobalGuiHandlerProxy);
+            }
+            jeiChecked = true;
+        } catch (Throwable ignored) {
+            jeiChecked = true;
+        }
+    }
+
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onScreenInit(ScreenEvent.Init.Post event) {
         if (event.getScreen() instanceof AbstractContainerScreen<?> containerScreen) {
             DraggableOverlayPanel.ensurePosition(containerScreen.width, containerScreen.height,
                 containerScreen.getGuiLeft(), containerScreen.getGuiTop(), containerScreen.getXSize());
             tryRegisterEmiExclusion();
+            tryRegisterJeiExclusion();
             if (DraggableOverlayPanel.isVisible) {
                 triggerEmiRecalculate();
             }
@@ -742,6 +820,7 @@ public class ClientEvents {
             DraggableOverlayPanel.ensurePosition(containerScreen.width, containerScreen.height,
                 containerScreen.getGuiLeft(), containerScreen.getGuiTop(), containerScreen.getXSize());
             tryRegisterEmiExclusion();
+            tryRegisterJeiExclusion();
             checkAndSyncEmiExclusion();
             if (DraggableOverlayPanel.isVisible && DraggableOverlayPanel.isMouseOverPanel(event.getMouseX(), event.getMouseY())) {
                 clearHoveredSlot(containerScreen);

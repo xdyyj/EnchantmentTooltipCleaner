@@ -1,5 +1,6 @@
 package com.xdyyj.enchantmenttooltipcleaner;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -57,6 +58,14 @@ public class DraggableOverlayPanel {
 
     public static boolean isDragging() {
         return isDragging;
+    }
+
+    public static int getPanelX() {
+        return panelX;
+    }
+
+    public static int getPanelY() {
+        return panelY;
     }
 
     public static void toggleVisibility() {
@@ -146,14 +155,6 @@ public class DraggableOverlayPanel {
         panelY = Math.max(0, Math.min(panelY, screenHeight - PANEL_HEIGHT));
     }
 
-    public static int getPanelX() {
-        return panelX;
-    }
-
-    public static int getPanelY() {
-        return panelY;
-    }
-
     private static double lastMouseX = -1;
     private static double lastMouseY = -1;
 
@@ -205,6 +206,9 @@ public class DraggableOverlayPanel {
         Font font = Minecraft.getInstance().font;
         hoveredTooltip = null;
 
+        graphics.flush();
+        RenderSystem.disableDepthTest();
+
         graphics.pose().pushPose();
         graphics.pose().translate(0.0F, 0.0F, 500.0F);
 
@@ -220,9 +224,17 @@ public class DraggableOverlayPanel {
         graphics.fill(panelX + 1, panelY + 1, panelX + PANEL_WIDTH - 1, panelY + TITLE_BAR_HEIGHT, titleHovered ? 0xFF28282E : 0xFF202024);
         graphics.hLine(panelX + 1, panelX + PANEL_WIDTH - 2, panelY + TITLE_BAR_HEIGHT, 0xFF323238);
 
-        // 标题栏内嵌操作动态反馈：状态生效时以亮绿文本呈现，2秒后自动淡出恢复默认标题
+        // 标题栏内嵌操作动态反馈：状态生效时以亮绿文本呈现，超长时截断并支持悬停显示完整内容，2秒后自动淡出恢复默认标题
         if (statusMessage != null && System.currentTimeMillis() < statusMessageExpiry) {
-            graphics.drawString(font, "§a" + statusMessage, panelX + 7, panelY + 5, 0xFF55FF55, false);
+            int maxTitleW = PANEL_WIDTH - 24;
+            String displayStatus = statusMessage;
+            if (font.width(displayStatus) > maxTitleW) {
+                displayStatus = font.plainSubstrByWidth(displayStatus, maxTitleW - font.width("...")) + "...";
+            }
+            graphics.drawString(font, "§a" + displayStatus, panelX + 7, panelY + 5, 0xFF55FF55, false);
+            if (titleHovered) {
+                hoveredTooltip = statusMessage;
+            }
         } else {
             graphics.drawString(font, tr("gui.enchantmenttooltipcleaner.overlay.title"), panelX + 7, panelY + 5, 0xFFEDEDED, false);
         }
@@ -287,18 +299,20 @@ public class DraggableOverlayPanel {
 
         graphics.pose().popPose();
 
-        // 6. 悬浮说明展示 (提高至最高 Z=900，杜绝被背包或 EMI 覆盖)
+        // 6. 悬浮说明展示 (保证处于绝对顶层渲染)
         if (hoveredTooltip != null) {
             isRenderingOurOwnTooltip = true;
             try {
-                graphics.pose().pushPose();
-                graphics.pose().translate(0.0F, 0.0F, 900.0F);
+                graphics.flush();
                 graphics.renderTooltip(font, net.minecraft.network.chat.Component.literal("§7" + hoveredTooltip), mouseX, mouseY);
-                graphics.pose().popPose();
+                graphics.flush();
             } finally {
                 isRenderingOurOwnTooltip = false;
             }
         }
+
+        graphics.flush();
+        RenderSystem.enableDepthTest();
     }
 
     private static void renderTabButton(GuiGraphics graphics, Font font, int mouseX, int mouseY, int x, int y, int w, int h, String text, boolean active) {
@@ -421,7 +435,12 @@ public class DraggableOverlayPanel {
         boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
         graphics.fill(x, y, x + w, y + h, hovered ? 0xFF35353C : 0xFF222226);
         graphics.renderOutline(x, y, w, h, hovered ? 0xFF888892 : 0xFF38383F);
-        graphics.drawCenteredString(font, text, x + w / 2, y + 2, hovered ? 0xFFFFFFFF : textColor);
+        String displayText = text;
+        int maxTextW = w - 6;
+        if (font.width(displayText) > maxTextW) {
+            displayText = font.plainSubstrByWidth(displayText, maxTextW - font.width("..")) + "..";
+        }
+        graphics.drawCenteredString(font, displayText, x + w / 2, y + 2, hovered ? 0xFFFFFFFF : textColor);
         if (hovered && tooltip != null) {
             hoveredTooltip = tooltip;
         }
